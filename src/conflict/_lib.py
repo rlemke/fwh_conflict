@@ -88,9 +88,24 @@ METRICS = [
     Metric("actors", "Armed actor count", "count"),
     # UNHCR (joined by ISO3, not UCDP) — people displaced FROM each country.
     Metric("displaced", "Displaced population (refugees + IDPs)", "count"),
+    # IDMC — new conflict displacements this year (joined by ISO3).
+    Metric("new_displaced", "New displacements (conflict, this year)", "count"),
+    # IPC — population in acute food insecurity Phase 3+ (joined by ISO3).
+    Metric("food_insecure", "Food insecurity (IPC Phase 3+)", "count"),
 ]
 
 UNHCR_URL = "https://api.unhcr.org/population/v1/population/"
+# IDMC GIDD export — IDMCWSHSOLO009 is IDMC's PUBLIC client_id (used by their own
+# HDX records); the bulk export is open, no registration.
+IDMC_EXPORT_URL = (
+    "https://helix-tools-api.idmcdb.org/external-api/gidd/displacements/displacement-export/"
+    "?client_id=IDMCWSHSOLO009&release_environment=RELEASE"
+)
+# IPC global acute food insecurity, open CSV on HDX (no API key).
+IPC_CSV_URL = (
+    "https://data.humdata.org/dataset/7a7e7428-b8d7-4d2e-91d3-19100500e016/resource/"
+    "6926dff7-658a-49e1-8d61-0ed8a983fbe1/download/ipc_global_national_long_latest.csv"
+)
 
 
 @dataclass
@@ -217,6 +232,69 @@ def download_unhcr_displacement(*, year: int, force: bool = False) -> dict[str, 
     return out
 
 
+def download_idmc_new_displacements(*, year: int, force: bool = False) -> dict[str, int]:
+    """Return {ISO3: new CONFLICT displacements in ``year``} from the IDMC GIDD
+    bulk export (public client_id, open). "Conflict Internal Displacements" =
+    new displacement events that year. Cached."""
+    cache_key = cstore.join(cstore.cache_root(), f"idmc-new-displacements-{year}.json")
+    if not force and cstore.exists(cache_key):
+        with cstore.open_read(cache_key) as f:
+            return json.load(f)
+    if requests is None:
+        raise RuntimeError("requests is required to download IDMC data")
+    import openpyxl  # heavier dep, imported lazily
+    resp = requests.get(IDMC_EXPORT_URL, params={"start_year": year, "end_year": year},
+                        timeout=180, headers={"User-Agent": USER_AGENT})
+    resp.raise_for_status()
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content), read_only=True)
+    ws = wb[wb.sheetnames[0]]
+    rows = ws.iter_rows(values_only=True)
+    ci = {str(n): i for i, n in enumerate(next(rows))}
+    iso_i, val_i = ci.get("ISO3"), ci.get("Conflict Internal Displacements")
+    out: dict[str, int] = {}
+    if iso_i is not None and val_i is not None:
+        for r in rows:
+            if len(r) <= max(iso_i, val_i):
+                continue
+            iso, v = r[iso_i], r[val_i]
+            if iso and v:
+                try:
+                    out[iso] = out.get(iso, 0) + int(v)
+                except (TypeError, ValueError):
+                    pass
+    logger.info("IDMC new conflict displacements %s: %d countries", year, len(out))
+    with cstore.open_write(cache_key, "w") as f:
+        json.dump(out, f)
+    return out
+
+
+def download_ipc_food_insecurity(*, force: bool = False) -> dict[str, int]:
+    """Return {ISO3: population in IPC Phase 3+ (crisis or worse)} from the latest
+    "current" analysis (open HDX CSV, no key). A current snapshot of acute food
+    insecurity — not year-specific. Cached."""
+    cache_key = cstore.join(cstore.cache_root(), "ipc-food-insecurity.json")
+    if not force and cstore.exists(cache_key):
+        with cstore.open_read(cache_key) as f:
+            return json.load(f)
+    if requests is None:
+        raise RuntimeError("requests is required to download IPC data")
+    resp = requests.get(IPC_CSV_URL, timeout=120, headers={"User-Agent": USER_AGENT})
+    resp.raise_for_status()
+    out: dict[str, int] = {}
+    for row in csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig"))):
+        if row.get("Phase") == "3+" and row.get("Validity period") == "current":
+            iso = row.get("Country")
+            try:
+                if iso:
+                    out[iso] = int(row.get("Number") or 0)
+            except (TypeError, ValueError):
+                pass
+    logger.info("IPC Phase 3+ : %d countries", len(out))
+    with cstore.open_write(cache_key, "w") as f:
+        json.dump(out, f)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Build the map.
 # ---------------------------------------------------------------------------
@@ -226,6 +304,8 @@ def build_conflict_map(*, year: int | None = None, force: bool = False) -> Confl
     """Aggregate UCDP, join onto world geometry, render the choropleth."""
     target, countries = download_ucdp_aggregate(year=year, force=force)
     displaced = download_unhcr_displacement(year=target, force=force)
+    new_displaced = download_idmc_new_displacements(year=target, force=force)
+    food_insecure = download_ipc_food_insecurity(force=force)
     world = _world_geojson()
 
     matched = 0
@@ -255,7 +335,9 @@ def build_conflict_map(*, year: int | None = None, force: bool = False) -> Confl
             new["m_intensity"] = (
                 round(rec["deaths"] / pop * 100000, 2) if pop and pop > 0 else None
             )
-        new["m_displaced"] = displaced.get(iso)  # UNHCR, by ISO3 — independent of UCDP
+        new["m_displaced"] = displaced.get(iso)       # UNHCR, by ISO3
+        new["m_new_displaced"] = new_displaced.get(iso)  # IDMC, by ISO3
+        new["m_food_insecure"] = food_insecure.get(iso)  # IPC, by ISO3
         ft["properties"] = {"NAME": name, "POP_EST": pop, **new}
 
     fc = {"type": "FeatureCollection", "features": world["features"]}

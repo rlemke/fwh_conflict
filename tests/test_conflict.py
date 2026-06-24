@@ -15,7 +15,8 @@ from conflict.handlers import conflict_handlers as ch  # noqa: E402
 
 def test_metric_registry():
     keys = [m.key for m in _lib.METRICS]
-    assert keys == ["events", "deaths", "civilian", "intensity", "actors", "displaced"]
+    assert keys == ["events", "deaths", "civilian", "intensity", "actors",
+                    "displaced", "new_displaced", "food_insecure"]
     assert all(m.fmt in ("count", "rate") for m in _lib.METRICS)
 
 
@@ -54,6 +55,8 @@ def test_render_html_from_synthetic_aggregate(monkeypatch, tmp_path):
     }
     monkeypatch.setattr(_lib, "download_ucdp_aggregate", lambda **k: (2024, agg))
     monkeypatch.setattr(_lib, "download_unhcr_displacement", lambda **k: {"UKR": 8800000})
+    monkeypatch.setattr(_lib, "download_idmc_new_displacements", lambda **k: {"UKR": 200000})
+    monkeypatch.setattr(_lib, "download_ipc_food_insecurity", lambda **k: {"UKR": 1000000})
     monkeypatch.setattr(_lib, "_world_geojson", lambda: world)
     res = _lib.build_conflict_map()
     assert res.year == 2024 and res.country_count == 1
@@ -62,5 +65,7 @@ def test_render_html_from_synthetic_aggregate(monkeypatch, tmp_path):
     assert all(m.label in html for m in _lib.METRICS)
     # intensity = 5000 / 40,000,000 * 100k = 12.5
     assert '"m_intensity":12.5' in html.replace(" ", "")
-    # UNHCR displaced joined by ISO3
+    # external sources joined by ISO3
     assert '"m_displaced":8800000' in html.replace(" ", "")
+    assert '"m_new_displaced":200000' in html.replace(" ", "")
+    assert '"m_food_insecure":1000000' in html.replace(" ", "")

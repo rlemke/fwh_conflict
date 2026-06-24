@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Facetwork domain: UCDP armed-conflict world maps"
 requires-python = ">=3.11"
 authors = [{name = "Ralph Lemke"}]
-dependencies = ["requests"]
+dependencies = ["requests", "openpyxl"]
 
 [project.entry-points."facetwork.domains"]
 conflict = "conflict:domain"
