@@ -1,0 +1,54 @@
+// Conflict domain — UCDP armed-conflict world maps.
+//
+// One source facet (DownloadUCDP) caches a per-country aggregate of the UCDP
+// Georeferenced Event Dataset; BuildConflictMap joins it onto world country
+// geometry and renders a MapLibre choropleth with a metric dropdown over the
+// 5 UCDP-derivable metrics (events, deaths, civilian targeting, intensity per
+// 100k, armed actor count). Output → cache/conflict/output/index.html (MinIO).
+
+namespace conflict.sources {
+    /** Download the UCDP GED bulk CSV and cache the per-country aggregate for a
+      * year (``year = 0`` → the latest year in the dataset). The public UCDP API
+      * needs a token; the bulk zip does not. */
+    event facet DownloadUCDP(
+        year: Int = 0,
+        force: Boolean = false
+    ) => (
+        year: Int,
+        country_count: Int
+    ) with Effect(kind = "external") with Cost(tier = "moderate") with Timeout(minutes = 15)
+}
+
+namespace conflict.maps {
+    /** Join the cached UCDP aggregate onto Natural Earth country geometry,
+      * normalise intensity by population, and render the world choropleth.
+      * ``dependency_signal`` sequences this strictly after the download. */
+    event facet BuildConflictMap(
+        year: Int = 0,
+        dependency_signal: Int = 0
+    ) => (
+        html_path: String,
+        geojson_path: String,
+        year: Int,
+        country_count: Int
+    ) with Effect(kind = "io") with Cost(tier = "cheap") with Timeout(minutes = 10)
+}
+
+namespace conflict.workflows {
+    use conflict.sources
+    use conflict.maps
+
+    /** Build the UCDP armed-conflict world map (latest year by default). */
+    workflow BuildConflictWorldMap(
+        year: Int = 0
+    ) => (status: String, html_path: String, year: Int, country_count: Int) andThen {
+        ucdp = DownloadUCDP(year = $.year)
+        map = BuildConflictMap(year = $.year, dependency_signal = ucdp.country_count)
+        yield BuildConflictWorldMap(
+            status = "completed",
+            html_path = map.html_path,
+            year = map.year,
+            country_count = map.country_count
+        )
+    }
+}

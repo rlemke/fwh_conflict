@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "conflict"
+version = "0.1.0"
+description = "Facetwork domain: UCDP armed-conflict world maps"
+requires-python = ">=3.11"
+authors = [{name = "Ralph Lemke"}]
+dependencies = ["requests"]
+
+[project.entry-points."facetwork.domains"]
+conflict = "conflict:domain"
+
+[tool.setuptools.packages.find]
+where = ["src"]
