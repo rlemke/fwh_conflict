@@ -15,8 +15,7 @@ from conflict.handlers import conflict_handlers as ch  # noqa: E402
 
 def test_metric_registry():
     keys = [m.key for m in _lib.METRICS]
-    assert keys == ["events", "deaths", "civilian", "intensity", "actors"]
-    assert _lib.BY_KEY["intensity"].fmt == "rate" if hasattr(_lib, "BY_KEY") else True
+    assert keys == ["events", "deaths", "civilian", "intensity", "actors", "displaced"]
     assert all(m.fmt in ("count", "rate") for m in _lib.METRICS)
 
 
@@ -47,13 +46,14 @@ def test_render_html_from_synthetic_aggregate(monkeypatch, tmp_path):
     world = {
         "type": "FeatureCollection",
         "features": [
-            {"type": "Feature", "properties": {"NAME": "Ukraine", "POP_EST": 40000000},
+            {"type": "Feature", "properties": {"NAME": "Ukraine", "POP_EST": 40000000, "ISO_A3": "UKR"},
              "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [0, 1], [1, 1], [0, 0]]]}},
-            {"type": "Feature", "properties": {"NAME": "Sweden", "POP_EST": 10000000},
+            {"type": "Feature", "properties": {"NAME": "Sweden", "POP_EST": 10000000, "ISO_A3": "SWE"},
              "geometry": {"type": "Polygon", "coordinates": [[[2, 2], [2, 3], [3, 3], [2, 2]]]}},
         ],
     }
     monkeypatch.setattr(_lib, "download_ucdp_aggregate", lambda **k: (2024, agg))
+    monkeypatch.setattr(_lib, "download_unhcr_displacement", lambda **k: {"UKR": 8800000})
     monkeypatch.setattr(_lib, "_world_geojson", lambda: world)
     res = _lib.build_conflict_map()
     assert res.year == 2024 and res.country_count == 1
@@ -62,3 +62,5 @@ def test_render_html_from_synthetic_aggregate(monkeypatch, tmp_path):
     assert all(m.label in html for m in _lib.METRICS)
     # intensity = 5000 / 40,000,000 * 100k = 12.5
     assert '"m_intensity":12.5' in html.replace(" ", "")
+    # UNHCR displaced joined by ISO3
+    assert '"m_displaced":8800000' in html.replace(" ", "")

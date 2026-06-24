@@ -86,7 +86,11 @@ METRICS = [
     Metric("civilian", "Civilian targeting", "count"),
     Metric("intensity", "Conflict intensity (deaths / 100k)", "rate"),
     Metric("actors", "Armed actor count", "count"),
+    # UNHCR (joined by ISO3, not UCDP) — people displaced FROM each country.
+    Metric("displaced", "Displaced population (refugees + IDPs)", "count"),
 ]
+
+UNHCR_URL = "https://api.unhcr.org/population/v1/population/"
 
 
 @dataclass
@@ -176,6 +180,43 @@ def _world_geojson() -> dict:
     return data
 
 
+def download_unhcr_displacement(*, year: int, force: bool = False) -> dict[str, int]:
+    """Return {ISO3: refugees + IDPs displaced FROM that country} for ``year``.
+
+    UNHCR Refugee Statistics population endpoint, aggregated by country of
+    origin (``coo_iso``). Refugees who fled the country + IDPs within it = the
+    country's forced-displacement burden. Cached (small)."""
+    cache_key = cstore.join(cstore.cache_root(), f"unhcr-displacement-{year}.json")
+    if not force and cstore.exists(cache_key):
+        with cstore.open_read(cache_key) as f:
+            return json.load(f)
+    if requests is None:
+        raise RuntimeError("requests is required to download UNHCR data")
+    out: dict[str, int] = {}
+    page, max_pages = 1, 1
+    while page <= max_pages:
+        resp = requests.get(
+            UNHCR_URL, params={"year": year, "coo_all": "true", "limit": 1000, "page": page},
+            timeout=120, headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        max_pages = int(payload.get("maxPages", 1) or 1)
+        for r in payload.get("items", []):
+            iso = r.get("coo_iso")
+            if not iso or iso == "-":
+                continue
+            try:
+                out[iso] = out.get(iso, 0) + int(r.get("refugees") or 0) + int(r.get("idps") or 0)
+            except (TypeError, ValueError):
+                pass
+        page += 1
+    logger.info("UNHCR displacement %s: %d origin countries", year, len(out))
+    with cstore.open_write(cache_key, "w") as f:
+        json.dump(out, f)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Build the map.
 # ---------------------------------------------------------------------------
@@ -184,37 +225,38 @@ def _world_geojson() -> dict:
 def build_conflict_map(*, year: int | None = None, force: bool = False) -> ConflictMapResult:
     """Aggregate UCDP, join onto world geometry, render the choropleth."""
     target, countries = download_ucdp_aggregate(year=year, force=force)
+    displaced = download_unhcr_displacement(year=target, force=force)
     world = _world_geojson()
 
     matched = 0
     for ft in world["features"]:
-        name = ft["properties"].get("NAME", "")
-        # reverse-resolve: which UCDP country maps to this NE NAME?
+        props = ft["properties"]
+        name = props.get("NAME", "")
+        pop = props.get("POP_EST")
+        # ISO3 for the UNHCR join (NE puts -99 on a few, e.g. France/Norway → ADM0_A3).
+        iso = props.get("ISO_A3")
+        if not iso or iso == "-99":
+            iso = props.get("ADM0_A3")
+        # UCDP joins by NAME (with an alias map for its historical names).
         rec = countries.get(name)
         if rec is None:
             for ucdp, ne in COUNTRY_ALIASES.items():
                 if ne == name and ucdp in countries:
                     rec = countries[ucdp]
                     break
-        props = ft["properties"]
-        pop = props.get("POP_EST")
+
+        new = {f"m_{m.key}": None for m in METRICS}
         if rec:
             matched += 1
-            props["m_events"] = rec["events"]
-            props["m_deaths"] = rec["deaths"]
-            props["m_civilian"] = rec["civilian"]
-            props["m_actors"] = rec["actors"]
-            props["m_intensity"] = (
+            new["m_events"] = rec["events"]
+            new["m_deaths"] = rec["deaths"]
+            new["m_civilian"] = rec["civilian"]
+            new["m_actors"] = rec["actors"]
+            new["m_intensity"] = (
                 round(rec["deaths"] / pop * 100000, 2) if pop and pop > 0 else None
             )
-        else:
-            for m in METRICS:
-                props[f"m_{m.key}"] = None
-        # keep the props light: drop everything except NAME + the m_ fields + POP_EST
-        keep = {"NAME": name, "POP_EST": pop}
-        for m in METRICS:
-            keep[f"m_{m.key}"] = props.get(f"m_{m.key}")
-        ft["properties"] = keep
+        new["m_displaced"] = displaced.get(iso)  # UNHCR, by ISO3 — independent of UCDP
+        ft["properties"] = {"NAME": name, "POP_EST": pop, **new}
 
     fc = {"type": "FeatureCollection", "features": world["features"]}
     html = _render_html(fc, year=target)
