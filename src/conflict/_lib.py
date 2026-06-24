@@ -395,8 +395,10 @@ def _render_html(fc: dict, *, year: int) -> str:
 <div id="ctl" class="panel">
   <h3>Armed conflict by country &middot; {year}</h3>
   <select id="metric"></select>
-  <div style="margin-top:5px;color:#555">Countries shaded <b>dark = worse</b>. Click a country
-  for all metrics. Source: UCDP Georeferenced Event Dataset (events {year}).</div>
+  <div style="margin-top:5px;color:#555">Armed-conflict indicators by country ({year}), shaded
+  <b>dark = worse</b>. Pick a metric above; click a country for all values. Sources: UCDP
+  (events, deaths, civilian targeting, actors), UNHCR (displaced), IDMC (new displacements),
+  IPC (food insecurity).</div>
 </div>
 <div id="legend" class="panel"><b id="lgttl"></b><div class="scale" id="lgscale"></div></div>
 {_attribution()}
