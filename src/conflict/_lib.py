@@ -354,6 +354,8 @@ def build_conflict_map(*, year: int | None = None, force: bool = False) -> Confl
 
 
 def _attribution(year: int | None = None) -> str:
+    from datetime import UTC, datetime
+    ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     call = "conflict.workflows.BuildConflictWorldMap"
     if year:
         call = f"{call}(year={year})"
@@ -365,7 +367,8 @@ def _attribution(year: int | None = None) -> str:
         '<code style="background:#f0f0f0;padding:0 3px;border-radius:3px">'
         f"{escape(call)}</code> &middot; "
         f'<a href="{escape(FFL_URL)}" target="_blank" rel="noopener" '
-        'style="color:#1565c0;text-decoration:none">view FFL</a></div>'
+        'style="color:#1565c0;text-decoration:none">view FFL</a>'
+        f" &middot; generated {ts}</div>"
     )
 
 
