@@ -368,6 +368,8 @@ def _attribution(year: int | None = None) -> str:
         f"{escape(call)}</code> &middot; "
         f'<a href="{escape(FFL_URL)}" target="_blank" rel="noopener" '
         'style="color:#1565c0;text-decoration:none">view FFL</a>'
+        f' &middot; <a href="{escape(FFL_URL.split("/blob/")[0])}" target="_blank" '
+        'rel="noopener" style="color:#1565c0;text-decoration:none">source repo</a>'
         f" &middot; generated {ts}</div>"
     )
 
