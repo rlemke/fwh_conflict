@@ -1,10 +1,10 @@
 """Backend-aware paths for the conflict cache + outputs.
 
-On the fleet (``AFL_STORAGE=s3`` / ``AFL_DATA_ROOT=s3://afl-cache``) artifacts —
+On the fleet (``FW_STORAGE=s3`` / ``FW_DATA_ROOT=s3://afl-cache``) artifacts —
 the cached UCDP aggregate + world geometry + the rendered map HTML — land in the
 shared MinIO object store. A thin wrapper over ``facetwork.runtime.storage`` (the
 same shape census-us / save-earth use), so terminal use and fleet runs share one
-cache rooted at ``$AFL_DATA_ROOT/cache/conflict/``.
+cache rooted at ``$FW_DATA_ROOT/cache/conflict/``.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ def is_remote(path: str) -> bool:
 
 
 def _data_root() -> str:
-    return os.environ.get("AFL_DATA_ROOT") or get_output_base()
+    return os.environ.get("FW_DATA_ROOT") or get_output_base()
 
 
 def join(*parts: str) -> str:
@@ -37,7 +37,7 @@ def join(*parts: str) -> str:
 
 
 def cache_root() -> str:
-    ov = os.environ.get("AFL_CONFLICT_CACHE_DIR")
+    ov = os.environ.get("FW_CONFLICT_CACHE_DIR")
     if ov:
         return ov
     r = _data_root()
@@ -45,7 +45,7 @@ def cache_root() -> str:
 
 
 def output_root() -> str:
-    ov = os.environ.get("AFL_CONFLICT_OUTPUT_DIR")
+    ov = os.environ.get("FW_CONFLICT_OUTPUT_DIR")
     if ov:
         return ov
     r = _data_root()

@@ -41,8 +41,8 @@ def test_aliases_are_strings():
 def test_render_html_from_synthetic_aggregate(monkeypatch, tmp_path):
     """Render path works end-to-end with a tiny synthetic aggregate + geometry,
     no network — verifies the dropdown, attribution, and intensity math."""
-    os.environ["AFL_STORAGE"] = "local"
-    os.environ["AFL_DATA_ROOT"] = str(tmp_path)
+    os.environ["FW_STORAGE"] = "local"
+    os.environ["FW_DATA_ROOT"] = str(tmp_path)
     agg = {"Ukraine": {"events": 100, "deaths": 5000, "civilian": 3, "actors": 4}}
     world = {
         "type": "FeatureCollection",
