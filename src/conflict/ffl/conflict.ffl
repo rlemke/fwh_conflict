@@ -43,7 +43,7 @@ namespace conflict.workflows {
         year: Int = 0
     ) => (status: String, html_path: String, year: Int, country_count: Int) andThen {
         ucdp = DownloadUCDP(year = $.year)
-        map = BuildConflictMap(year = $.year, dependency_signal = ucdp.country_count)
+        map = BuildConflictMap(year = $.year) after ucdp
         yield BuildConflictWorldMap(
             status = "completed",
             html_path = map.html_path,
