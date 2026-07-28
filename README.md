@@ -13,6 +13,40 @@ choropleth with a metric dropdown:
 Plus three humanitarian overlays joined by ISO3: displaced population (UNHCR), new
 conflict displacements (IDMC), and food insecurity (IPC Phase 3+).
 
+## FFL at a glance
+
+The domain is driven from [FFL](https://github.com/rlemke/facetwork/blob/main/docs/reference/language/grammar.md),
+Facetwork's workflow language. A step is `name = Facet(args)`, and later steps
+reference earlier ones as `step.field`:
+
+```ffl
+namespace my.conflict {
+
+    use conflict.sources
+    use conflict.maps
+
+    /** Download the UCDP aggregate for a year, then render the world map. */
+    workflow ConflictYear(year: Int = 2023) => (status: String, html_path: String) andThen {
+
+        ucdp = conflict.sources.DownloadUCDP(year = $.year)
+
+        map = conflict.maps.BuildConflictMap(year = $.year, dependency_signal = ucdp.country_count)
+
+        yield ConflictYear(status = "completed", html_path = map.html_path)
+    }
+}
+```
+
+```bash
+fw ffl run --primary my.ffl --library src/conflict/ffl/conflict.ffl \
+  --workflow my.conflict.ConflictYear --inputs '{"year": 2023}'
+```
+
+📖 **[docs/ffl-examples.md](docs/ffl-examples.md)** — the full example gallery:
+sweeping several years in parallel with `foreach`, call-time mixins
+(timeout/retry), `catch`, `when` branching, wrapping the shipped workflow, and
+cross-domain composition (publishing). Every snippet there is compile-checked.
+
 ## Feature specifications
 
 Per-feature docs live in [`docs/`](docs/README.md) (one spec per feature, common
