@@ -22,10 +22,10 @@ namespace conflict.sources {
 namespace conflict.maps {
     /** Join the cached UCDP aggregate onto Natural Earth country geometry,
       * normalise intensity by population, and render the world choropleth.
-      * ``dependency_signal`` sequences this strictly after the download. */
+      * Reads what the download cached, so callers must order it with ``after``
+      * (no value flows between them). */
     event facet BuildConflictMap(
-        year: Int = 0,
-        dependency_signal: Int = 0
+        year: Int = 0
     ) => (
         html_path: String,
         geojson_path: String,
