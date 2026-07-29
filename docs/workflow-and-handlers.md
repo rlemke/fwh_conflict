@@ -20,15 +20,16 @@ Facetwork runner. It is the "how does this actually run on the fleet" spec.
 
 ```
 ucdp = DownloadUCDP(year = $.year)
-map  = BuildConflictMap(year = $.year, dependency_signal = ucdp.country_count)
+map  = BuildConflictMap(year = $.year)
 yield BuildConflictWorldMap(status = "completed", html_path = map.html_path,
                             year = map.year, country_count = map.country_count)
 ```
 
-`DownloadUCDP` caches the aggregate; `BuildConflictMap` joins + renders. Ordering is
-enforced by threading `ucdp.country_count` into `BuildConflictMap`'s
-`dependency_signal` param — a data-free dependency edge so the map never runs before
-the aggregate exists. The workflow yields `status/html_path/year/country_count`.
+`DownloadUCDP` caches the aggregate; `BuildConflictMap` joins + renders. No value
+flows between them — the map reads the cache the download wrote — so the compiler
+cannot see the dependency and the workflow states it with `after ucdp`, which is
+exactly what the `after` clause is for. The workflow yields
+`status/html_path/year/country_count`.
 
 **Dispatch** (`conflict_handlers.py`): a flat `_DISPATCH` dict maps the two fully
 qualified facet names to their functions:
@@ -103,9 +104,11 @@ routing key.)
 
 ## Gotchas & notes
 
-- **`dependency_signal` is a sequencing hack, not data.** It exists solely to create
-  an `andThen` data edge; its numeric value (the UCDP country count) is ignored by
-  `BuildConflictMap`. Removing it would let the map step race ahead of the download.
+- **The ordering is invisible to the compiler, so it must be written down.** The map
+  and the download exchange no value; they communicate only through the cache. `after
+  ucdp` states that edge directly. Drop it and the map step can race ahead of the
+  download. (This replaces the old `dependency_signal` idiom, which faked a data edge
+  by passing a number nothing read; `after` says the same thing without the lie.)
 - **Handlers register exactly two facets.** `test_dispatch_keys` /
   `test_register_handlers` pin this — a runner advertising `conflict.*` claims only
   these two (plus the `fw:execute` / `fw:resume` protocol tasks).

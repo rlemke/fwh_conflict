@@ -30,7 +30,7 @@ namespace my.conflict {
 
         ucdp = conflict.sources.DownloadUCDP(year = $.year)
 
-        map = conflict.maps.BuildConflictMap(year = $.year, dependency_signal = ucdp.country_count)
+        map = conflict.maps.BuildConflictMap(year = $.year) after ucdp
 
         yield ConflictYear(status = "completed", html_path = map.html_path)
     }

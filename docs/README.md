@@ -32,7 +32,7 @@ write-up.
 
 | Spec | What it covers |
 |------|----------------|
-| [workflow-and-handlers.md](workflow-and-handlers.md) | The `BuildConflictWorldMap` workflow (download → build, `dependency_signal` sequencing), the two-facet dispatch/registration, and `DomainPackage` discovery. |
+| [workflow-and-handlers.md](workflow-and-handlers.md) | The `BuildConflictWorldMap` workflow (download → build, ordered with `after`), the two-facet dispatch/registration, and `DomainPackage` discovery. |
 | [ffl-examples.md](ffl-examples.md) | **Usage patterns.** A gallery of complete, compile-checked FFL examples over these facets — minimal workflow, `foreach` year sweeps, call-time mixins, `catch`, `when`, and cross-domain composition. |
 | [storage-and-cache.md](storage-and-cache.md) | Backend-aware `storage.py`: local vs MinIO/S3 roots, the cache/output filenames, stage-local finalize-on-close, and the override env vars. |
 

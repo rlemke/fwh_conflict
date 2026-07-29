@@ -81,13 +81,14 @@ useful — so the render is deliberately one step.
 
 | Facet | Kind | Effect / Cost / Timeout | Signature → returns |
 |---|---|---|---|
-| `conflict.maps.BuildConflictMap` | **event** | `io` / `cheap` / 10 min | `(year: Int = 0, dependency_signal: Int = 0) => (html_path: String, geojson_path: String, year: Int, country_count: Int)` |
+| `conflict.maps.BuildConflictMap` | **event** | `io` / `cheap` / 10 min | `(year: Int = 0) => (html_path: String, geojson_path: String, year: Int, country_count: Int)` |
 
 FFL docstring: *"Join the cached UCDP aggregate onto Natural Earth country geometry,
-normalise intensity by population, and render the world choropleth.
-`dependency_signal` sequences this strictly after the download."* The
-`dependency_signal` param carries no data — the workflow passes `ucdp.country_count`
-into it purely to force ordering (see [workflow-and-handlers](workflow-and-handlers.md)).
+normalise intensity by population, and render the world choropleth. Reads what the
+download cached, so callers must order it with `after` (no value flows between
+them)."* The dependency is invisible to the compiler — the map reads the *cache* the
+download wrote, and no value passes between the two steps — so the workflow states it
+explicitly with `after ucdp` (see [workflow-and-handlers](workflow-and-handlers.md)).
 
 ## Cache / output
 

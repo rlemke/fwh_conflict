@@ -24,7 +24,7 @@ and the [canonical examples](https://github.com/rlemke/facetwork/tree/main/examp
 | Declaration | Signature | Does |
 |---|---|---|
 | `conflict.sources.DownloadUCDP` | `(year: Int = 0, force: Boolean = false) => (year: Int, country_count: Int)` | UCDP GED bulk CSV → cached per-country aggregate for a year (`0` = latest) |
-| `conflict.maps.BuildConflictMap` | `(year: Int = 0, dependency_signal: Int = 0) => (html_path, geojson_path, year, country_count)` | Join onto Natural Earth geometry, normalise by population, render the choropleth |
+| `conflict.maps.BuildConflictMap` | `(year: Int = 0) => (html_path, geojson_path, year, country_count)` | Join onto Natural Earth geometry, normalise by population, render the choropleth |
 | `conflict.workflows.BuildConflictWorldMap` | `(year: Int = 0) => (status, html_path, year, country_count)` | The shipped entry point: download → build |
 
 ---
@@ -58,7 +58,7 @@ namespace my.conflict {
 
         ucdp = conflict.sources.DownloadUCDP(year = 0)
 
-        map = conflict.maps.BuildConflictMap(year = 0, dependency_signal = ucdp.country_count)
+        map = conflict.maps.BuildConflictMap(year = 0) after ucdp
 
         yield MyConflictMap(html_path = map.html_path, countries = map.country_count)
     }
@@ -85,7 +85,7 @@ namespace my.conflict {
 
         ucdp = conflict.sources.DownloadUCDP(year = $.year, force = $.force)
 
-        map = conflict.maps.BuildConflictMap(year = $.year, dependency_signal = ucdp.country_count)
+        map = conflict.maps.BuildConflictMap(year = $.year) after ucdp
 
         yield ConflictYear(status = "completed", html_path = map.html_path)
     }
@@ -110,7 +110,7 @@ namespace my.conflict {
 
         ucdp = conflict.sources.DownloadUCDP(year = $.y)
 
-        map = conflict.maps.BuildConflictMap(year = $.y, dependency_signal = ucdp.country_count)
+        map = conflict.maps.BuildConflictMap(year = $.y) after ucdp
 
         yield ConflictYears(built = [map.year])
     }
@@ -129,8 +129,8 @@ execution graph.
 ## 5. Sequencing steps that share no data
 
 `BuildConflictMap` reads the *cache* the download wrote — it needs no value from
-it. Independent steps may run in any order, so make the dependency explicit by
-passing any upstream field as `dependency_signal`:
+it. Steps that exchange no value are unordered, so state the dependency explicitly
+with `after`:
 
 ```ffl
 namespace my.conflict {
@@ -144,7 +144,7 @@ namespace my.conflict {
         ucdp = conflict.sources.DownloadUCDP()
 
         // referencing ucdp.country_count is what makes this run second
-        map = conflict.maps.BuildConflictMap(dependency_signal = ucdp.country_count)
+        map = conflict.maps.BuildConflictMap() after ucdp
 
         yield OrderedConflictBuild(html_path = map.html_path)
     }
@@ -167,7 +167,7 @@ namespace my.conflict {
 
         ucdp = conflict.sources.DownloadUCDP(force = true) with Timeout(minutes = 45) with Retry(maxAttempts = 3, backoffSeconds = 60)
 
-        map = conflict.maps.BuildConflictMap(dependency_signal = ucdp.country_count) with Timeout(minutes = 20)
+        map = conflict.maps.BuildConflictMap() with Timeout(minutes = 20) after ucdp
 
         yield ResilientConflictMap(html_path = map.html_path)
     }
@@ -192,7 +192,7 @@ namespace my.conflict {
             yield BestEffortConflictMap(status = "download_failed", html_path = "")
         }
 
-        map = conflict.maps.BuildConflictMap(dependency_signal = ucdp.country_count)
+        map = conflict.maps.BuildConflictMap() after ucdp
 
         yield BestEffortConflictMap(status = "completed", html_path = map.html_path)
     }
@@ -215,7 +215,7 @@ namespace my.conflict {
 
         ucdp = conflict.sources.DownloadUCDP() andThen when {
             case $.country_count >= $$.min_countries => {
-                map = conflict.maps.BuildConflictMap(dependency_signal = $.country_count)
+                map = conflict.maps.BuildConflictMap()
                 yield GuardedConflictMap(status = "completed", html_path = map.html_path)
             }
             case _ => {
@@ -261,7 +261,7 @@ namespace my.conflict {
     /** Render, then push to the public maps site. */
     workflow ConflictPublish(repo: String = "rlemke/facetwork-maps") => (pages_url: String) andThen {
 
-        map = conflict.maps.BuildConflictMap(dependency_signal = 0)
+        map = conflict.maps.BuildConflictMap()
 
         published = census.Publish.PublishWebBundle(
             repo = $.repo,
