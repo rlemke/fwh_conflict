@@ -69,3 +69,51 @@ def test_render_html_from_synthetic_aggregate(monkeypatch, tmp_path):
     assert '"m_displaced":8800000' in html.replace(" ", "")
     assert '"m_new_displaced":200000' in html.replace(" ", "")
     assert '"m_food_insecure":1000000' in html.replace(" ", "")
+
+
+# ---------------------------------------------------------------------------
+# Cache key: "latest" is a moving target and must not be a cache key
+# ---------------------------------------------------------------------------
+
+def test_the_aggregate_is_keyed_on_the_resolved_year_not_on_latest():
+    """The key named a relative pointer, so `aggregate-latest.json` was found on
+    every later run and returned. The map froze at whatever year was current the
+    first time it was built and never advanced. Nothing reported it — the stale
+    hit looked exactly like a cache hit."""
+    from conflict import _lib
+
+    assert _lib._aggregate_key(2024).endswith("aggregate-2024.json")
+    assert "latest" not in _lib._aggregate_key(2024)
+
+
+def test_the_latest_resolution_expires():
+    """`year=None` is a claim about upstream, not a name for data, so it carries
+    an expiry. An explicit year names data that does not change once published
+    and needs none."""
+    from datetime import UTC, datetime, timedelta
+
+    from conflict import _lib
+
+    assert _lib.LATEST_MAX_AGE_HOURS > 0
+    now = datetime.now(UTC)
+    assert _lib._age_hours(now.isoformat()) < 1.0
+    stale = (now - timedelta(hours=_lib.LATEST_MAX_AGE_HOURS + 1)).isoformat()
+    assert _lib._age_hours(stale) > _lib.LATEST_MAX_AGE_HOURS
+
+
+def test_an_unreadable_pointer_is_treated_as_absent():
+    """A corrupt pointer must send us back to upstream, not raise mid-render."""
+    from conflict import _lib
+
+    assert _lib._age_hours(None) is None
+    assert _lib._age_hours("garbage") is None
+
+
+def test_the_pointer_and_the_aggregate_are_separate_entries():
+    """The pointer records only WHICH year was newest; the aggregate is still
+    read from that year's own immutable entry, so a stale pointer can never
+    corrupt a year's data."""
+    from conflict import _lib
+
+    assert _lib._latest_pointer_key() != _lib._aggregate_key(2024)
+    assert _lib._latest_pointer_key().endswith(".pointer.json")

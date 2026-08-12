@@ -30,6 +30,7 @@ import tempfile
 import zipfile
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from html import escape
 
 from . import storage as cstore
@@ -43,6 +44,12 @@ logger = logging.getLogger("conflict")
 csv.field_size_limit(20_000_000)
 
 UCDP_GED_URL = "https://ucdp.uu.se/downloads/ged/ged251-csv.zip"
+
+# How long a resolved "latest year" may be trusted before re-checking upstream.
+# UCDP publishes annually, so a week is generous and still bounds how long a
+# map can lag a new release. Only applies to year=None; an explicit year names
+# immutable data and never expires.
+LATEST_MAX_AGE_HOURS = 24.0 * 7
 WORLD_GEOJSON_URL = (
     "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/"
     "geojson/ne_110m_admin_0_countries.geojson"
@@ -121,16 +128,81 @@ class ConflictMapResult:
 # ---------------------------------------------------------------------------
 
 
-def download_ucdp_aggregate(*, year: int | None = None, force: bool = False) -> tuple[int, dict]:
+def _aggregate_key(year: int) -> str:
+    """Cache key for one year's aggregate. Keyed on the RESOLVED year."""
+    return cstore.join(cstore.cache_root(), f"aggregate-{year}.json")
+
+
+def _latest_pointer_key() -> str:
+    return cstore.join(cstore.cache_root(), "aggregate-latest.pointer.json")
+
+
+def _age_hours(iso: str | None) -> float | None:
+    if not iso:
+        return None
+    try:
+        stamp = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (datetime.now(UTC) - stamp).total_seconds() / 3600.0
+
+
+def download_ucdp_aggregate(
+    *,
+    year: int | None = None,
+    force: bool = False,
+    max_age_hours: float = LATEST_MAX_AGE_HOURS,
+) -> tuple[int, dict]:
     """Return (year, {ucdp_country: {events, deaths, civilian, actors:set→count}}).
 
-    Caches the small aggregate JSON; only re-parses the 250 MB CSV when forced
-    or absent. ``year`` defaults to the latest year present in the dataset."""
-    cache_key = cstore.join(cstore.cache_root(), f"aggregate-{year or 'latest'}.json")
-    if not force and cstore.exists(cache_key):
-        with cstore.open_read(cache_key) as f:
-            blob = json.load(f)
-        return blob["year"], blob["countries"]
+    Caches the small aggregate JSON; only re-parses the 250 MB CSV when forced,
+    absent, or when the cached "latest" resolution has gone stale. ``year``
+    defaults to the latest year present in the dataset.
+
+    **Two different caching questions, and they must not share a key.** An
+    explicit ``year`` names data that does not change once published, so it can
+    be cached under that year forever. ``year=None`` means "whatever is newest
+    upstream" — a MOVING target — and the latest year is only knowable after
+    parsing the 250 MB CSV.
+
+    This previously cached both under ``aggregate-{year or 'latest'}.json``. The
+    literal key ``aggregate-latest.json`` was then found on every subsequent run
+    and returned, so the map froze at whatever year happened to be current the
+    first time it was built and never advanced again. Nothing reported it: the
+    cache hit looked exactly like a cache hit.
+
+    Now the aggregate is always stored under its RESOLVED year, and the
+    "latest" answer is a separate, timestamped pointer that expires.
+    """
+    if year is not None:
+        # An explicit year names immutable data — presence is a sufficient key.
+        cache_key = _aggregate_key(year)
+        if not force and cstore.exists(cache_key):
+            with cstore.open_read(cache_key) as f:
+                blob = json.load(f)
+            return blob["year"], blob["countries"]
+    elif not force:
+        # "Latest" is a claim about upstream, so it carries an expiry. Note the
+        # pointer only records WHICH year was newest; the aggregate itself is
+        # still read from that year's own immutable entry.
+        pointer = _latest_pointer_key()
+        if cstore.exists(pointer):
+            try:
+                with cstore.open_read(pointer) as f:
+                    ptr = json.load(f)
+                age = _age_hours(ptr.get("resolved_at"))
+                resolved = int(ptr["year"])
+            except (OSError, ValueError, KeyError, TypeError):
+                age, resolved = None, None
+            if age is not None and age < max_age_hours and resolved is not None:
+                cache_key = _aggregate_key(resolved)
+                if cstore.exists(cache_key):
+                    with cstore.open_read(cache_key) as f:
+                        blob = json.load(f)
+                    logger.info(
+                        "UCDP latest=%s from cache (resolution %.1fh old)", resolved, age
+                    )
+                    return blob["year"], blob["countries"]
 
     if requests is None:
         raise RuntimeError("requests is required to download the UCDP dataset")
@@ -174,8 +246,16 @@ def download_ucdp_aggregate(*, year: int | None = None, force: bool = False) -> 
         c: {"events": ev[c], "deaths": deaths[c], "civilian": civ[c], "actors": len(actors[c])}
         for c in ev
     }
-    with cstore.open_write(cache_key, "w") as f:
+    # Always keyed on the RESOLVED year, never on "latest".
+    with cstore.open_write(_aggregate_key(target), "w") as f:
         json.dump({"year": target, "countries": countries}, f)
+    if year is None:
+        # Record WHEN we learned this was the newest year, so the next
+        # "latest" request can tell a fresh answer from a stale one.
+        with cstore.open_write(_latest_pointer_key(), "w") as f:
+            json.dump(
+                {"year": target, "resolved_at": datetime.now(UTC).isoformat()}, f
+            )
     logger.info("aggregated UCDP %s: %d countries", target, len(countries))
     return target, countries
 
