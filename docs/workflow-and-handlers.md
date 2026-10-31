@@ -20,7 +20,7 @@ Facetwork runner. It is the "how does this actually run on the fleet" spec.
 
 ```
 ucdp = DownloadUCDP(year = $.year)
-map  = BuildConflictMap(year = $.year)
+map  = BuildConflictMap(year = $.year) after ucdp
 yield BuildConflictWorldMap(status = "completed", html_path = map.html_path,
                             year = map.year, country_count = map.country_count)
 ```

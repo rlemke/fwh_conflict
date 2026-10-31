@@ -23,9 +23,13 @@ count, and population-normalised intensity.
 
 `download_ucdp_aggregate(year=None, force=False)` (`_lib.py`):
 
-1. **Cache check.** Looks for `aggregate-<year|latest>.json` under the conflict
-   cache root; if present and `force` is false, loads and returns
+1. **Cache check.** An explicit `year` looks for `aggregate-<year>.json` under the
+   conflict cache root; if present and `force` is false, loads and returns
    `(blob["year"], blob["countries"])` — re-runs skip the whole download+parse.
+   "Latest" (`year` `None`/`0`) first reads `aggregate-latest.pointer.json`, which
+   records which year was newest and when that was resolved; if the pointer is
+   younger than `LATEST_MAX_AGE_HOURS` (7 days), the aggregate is read from that
+   year's own `aggregate-<year>.json`. Otherwise it re-downloads.
 2. **Download.** `requests.get(UCDP_GED_URL, timeout=300)` where `UCDP_GED_URL =
    https://ucdp.uu.se/downloads/ged/ged251-csv.zip`. The zip is opened in memory
    (`io.BytesIO`) and the first `*.csv` member is read via `csv.DictReader`
@@ -36,7 +40,9 @@ count, and population-normalised intensity.
 4. **Aggregate.** For every row whose `year == target`, keyed on the `country`
    column, it accumulates the five metrics (see *Data & fields*).
 5. **Cache write.** Writes `{"year": target, "countries": {...}}` to
-   `aggregate-<...>.json` via the backend-aware `cstore.open_write`.
+   `aggregate-<target>.json` (always the RESOLVED year, never `latest`) via the
+   backend-aware `cstore.open_write`; a "latest" request also rewrites the pointer
+   with a fresh `resolved_at`.
 
 Data shape: `GED zip → CSV rows → {country: {events, deaths, civilian, actors}}
 JSON`. Note the aggregate stores `actors` as an **int** (the set is collapsed to
@@ -102,7 +108,7 @@ which is the number of **matched** map features (see Gotchas in
 
 ## Cache / output
 
-- **Cache:** `aggregate-<year|latest>.json` under `cache_root()` — on the fleet
+- **Cache:** `aggregate-<year>.json` (+ the expiring `aggregate-latest.pointer.json`) under `cache_root()` — on the fleet
   `s3://afl-cache/cache/conflict/cache/`, locally `<FW_DATA_ROOT>/conflict-cache/`.
 - **Output:** none directly; this facet produces only the cached aggregate. The
   rendered artifacts belong to [map-rendering](map-rendering.md).
@@ -120,6 +126,10 @@ which is the number of **matched** map features (see Gotchas in
 - **250 MB parse.** The first run reads the entire CSV into memory (`list(...)`).
   This is why the 15-minute timeout and the aggressive aggregate cache exist; keep
   `force` off for routine re-runs.
+- **"Latest" expires; a year does not.** An explicit year is immutable data and is
+  cached forever. The latest-year answer is a claim about upstream, so its pointer
+  expires after 7 days. (An earlier version cached "latest" under a literal
+  `aggregate-latest.json` key, which froze the map at the first year it was built.)
 - **`best` is the "best" fatality estimate** — UCDP also ships `low`/`high`; only
   `best` is summed here.
 

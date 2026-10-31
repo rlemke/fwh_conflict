@@ -7,18 +7,22 @@
 ## Overview
 
 A thin, **backend-aware** I/O layer so the same code path works for terminal runs
-(local disk) and fleet runs (MinIO/S3). It wraps `facetwork.runtime.storage` and
-`facetwork.config.get_output_base`, giving `_lib` a small vocabulary —
+(local disk) and fleet runs (MinIO/S3). Since September 2026 the module is a shim
+over the shared `facetwork.domains.storage` (`domain_storage("conflict")`), which
+owns the behaviour for most `fwh_*` repos; this file keeps the import path and the
+public names `_lib` uses (including the private `_data_root`). It gives `_lib` a small vocabulary —
 `cache_root()`, `output_root()`, `join`, `exists`, `open_read`, `open_write`,
 `localize` — so no `_lib` function ever branches on the storage backend itself. The
-module docstring notes it is "the same shape census-us / save-earth use".
+layout arguments pin where this domain's data already sits in the object store —
+changing them orphans the cache rather than moving it.
 
 ## How it works
 
-- **Root resolution** — `_data_root()` returns `FW_DATA_ROOT` if set, else
+- **Root resolution** — `data_root()` (alias `_data_root`) returns `FW_DATA_ROOT` if set, else
   `get_output_base()`. `is_remote(path)` is simply `"://" in path`.
 - **`cache_root()`** — remote: `<root>/cache/conflict/cache`; local:
-  `<root>/conflict-cache`. Overridable with `FW_CONFLICT_CACHE_DIR`.
+  `<root>/conflict-cache`. Overridable with `FW_CONFLICT_CACHE_DIR` (the shared
+  layer derives `FW_<DOMAIN>_CACHE_DIR` / `_OUTPUT_DIR` from the domain name).
 - **`output_root()`** — remote: `<root>/cache/conflict/output`; local:
   `<root>/conflict-output`. Overridable with `FW_CONFLICT_OUTPUT_DIR`.
 - **`exists(path)`** — delegates to `get_storage_backend(path).exists(path)`.
@@ -40,7 +44,8 @@ The concrete files this layer holds, all under `cache_root()` unless noted:
 
 | File | Written by | Contents |
 |---|---|---|
-| `aggregate-<year\|latest>.json` | `download_ucdp_aggregate` | `{year, countries:{name:{events,deaths,civilian,actors}}}` |
+| `aggregate-<year>.json` | `download_ucdp_aggregate` | `{year, countries:{name:{events,deaths,civilian,actors}}}` — keyed on the resolved year |
+| `aggregate-latest.pointer.json` | `download_ucdp_aggregate` | `{year, resolved_at}` — which year was newest; expires after 7 days |
 | `world-countries.geojson` | `_world_geojson` | Natural Earth 110m admin-0 countries |
 | `unhcr-displacement-<year>.json` | `download_unhcr_displacement` | `{ISO3: refugees+idps}` |
 | `idmc-new-displacements-<year>.json` | `download_idmc_new_displacements` | `{ISO3: new conflict displacements}` |
@@ -50,9 +55,9 @@ The concrete files this layer holds, all under `cache_root()` unless noted:
 
 ## External libraries / binaries
 
-- **`facetwork.runtime.storage`** — `get_storage_backend`, `localize`.
-- **`facetwork.config.get_output_base`** — the default data root.
-- **stdlib** `os` / `tempfile` / `contextlib`.
+- **`facetwork.domains.storage`** — `domain_storage`, `join`, `is_remote`; it in turn
+  uses `facetwork.runtime.storage` (backends, `localize`, the runtime's single S3
+  client) and `facetwork.config.get_output_base` (the default data root).
 - No binary dependencies.
 
 ## Cache / output
@@ -73,9 +78,9 @@ The published map is `output/index.html` in MinIO (as the FFL header notes).
 - **Overrides are per-purpose.** `FW_CONFLICT_CACHE_DIR` / `FW_CONFLICT_OUTPUT_DIR`
   fully replace the computed root (bypassing the local/remote branch), while
   `FW_DATA_ROOT` shifts both.
-- **Cache keys are not namespaced by dataset version.** `aggregate-latest.json`
-  survives a UCDP version bump — pass `force=true` (or clear the cache) after
-  changing `UCDP_GED_URL`.
+- **Cache keys are not namespaced by dataset version.** `aggregate-<year>.json`
+  survives a UCDP version bump (and the latest pointer for up to 7 days) — pass
+  `force=true` (or clear the cache) after changing `UCDP_GED_URL`.
 
 ## Related specs
 

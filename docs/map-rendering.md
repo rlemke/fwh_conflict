@@ -74,7 +74,9 @@ useful — so the render is deliberately one step.
 - **stdlib** `json` / `html.escape` / `datetime` — serialisation, HTML escaping,
   timestamp in the footer.
 - **Client-side (CDN, referenced by the HTML, not a Python dep):**
-  `maplibre-gl@4.7.1` (JS + CSS from unpkg) and CARTO Voyager raster basemap tiles.
+  `maplibre-gl@4.7.1` (JS + CSS from unpkg) and keyless OpenStreetMap raster tiles
+  (`tile.openstreetmap.org`; CARTO was dropped in October 2026 after it began
+  watermarking keyless tiles).
 - No binary dependencies.
 
 ## Facets & workflows
@@ -116,7 +118,7 @@ explicitly with `after ucdp` (see [workflow-and-handlers](workflow-and-handlers.
   and the `m_*` keys survive, so any downstream consumer of `conflict.geojson`
   should not expect ISO codes or other NE attributes.
 - **Self-contained but CDN-dependent at view time.** The HTML inlines all data but
-  loads MapLibre + basemap tiles from unpkg/CARTO; it needs network to render in a
+  loads MapLibre + basemap tiles from unpkg/OpenStreetMap; it needs network to render in a
   browser (offline it shows a blank map).
 - **The `_search_*` / `_modal_*` helpers return plain strings** interpolated into the
   `_render_html` f-string; their `{...}` are literal JS/CSS braces, not f-string
